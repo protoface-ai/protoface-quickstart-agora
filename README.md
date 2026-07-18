@@ -77,4 +77,3 @@ If an SDK or plugin is available separately, we've linked to it instead.
 | Python | [SDK](https://github.com/protoface-ai/protoface-sdk-python) |
 | Node.js | [SDK](https://github.com/protoface-ai/protoface-sdk-node) |
 
-| Node.js | [SDK](https://github.com/protoface-ai/protoface-sdk-node) |
