@@ -14,6 +14,7 @@
     "agora-token": "^2.0.5",
     "livekit-server-sdk": "^2.15.5",
     "next": "^16.2.6",
+    "protoface-client": "^0.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
