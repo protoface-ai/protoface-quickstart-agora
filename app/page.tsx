@@ -75,7 +75,7 @@ export default function Home() {
       setAvatarId(agora.avatarId);
 
       if (integration === "protoface-client") {
-        await startProtofaceClient(agora);
+        await startProtofaceClient(agora, startAttempt);
       } else {
         pushEvent("Protoface configured through the Agora Agents SDK.");
       }
@@ -166,7 +166,7 @@ export default function Home() {
     }
   }
 
-  async function startProtofaceClient(agora: AgoraConnectionResponse) {
+  async function startProtofaceClient(agora: AgoraConnectionResponse, startAttempt: number) {
     const connection = await createProtofaceConnection({
       avatarId: agora.avatarId,
       maxSessionLength: 600,
@@ -177,6 +177,10 @@ export default function Home() {
         integration: "protoface-client"
       }
     });
+    if (!isStartAttemptActive(startAttempt)) {
+      await endProtofaceSession(connection.sessionId ?? connection.sessionToken).catch(() => {});
+      return;
+    }
 
     const protoface = new ProtofaceClient({
       avatarId: connection.avatarId ?? agora.avatarId,
@@ -191,22 +195,41 @@ export default function Home() {
     });
     protofaceRef.current = protoface;
 
-    protoface.on("start", () => pushEvent("Protoface Client started."));
+    protoface.on("start", () => {
+      if (isStartAttemptActive(startAttempt)) {
+        pushEvent("Protoface Client started.");
+      }
+    });
     protoface.on("error", ({ error: protofaceError }) => {
+      if (!isStartAttemptActive(startAttempt)) {
+        return;
+      }
       setError(protofaceError.message);
       pushEvent(`Protoface error: ${protofaceError.message}`);
       void endSession("error");
     });
     protoface.on("speaking", () => {
+      if (!isStartAttemptActive(startAttempt)) {
+        return;
+      }
       setMode("speaking");
       pushEvent("Protoface is speaking.");
     });
     protoface.on("silent", () => {
+      if (!isStartAttemptActive(startAttempt)) {
+        return;
+      }
       setMode(agentReadyRef.current ? "listening" : "starting agent");
       pushEvent("Protoface is ready.");
     });
 
     await protoface.start();
+    if (!isStartAttemptActive(startAttempt)) {
+      await protoface.stop().catch(() => {});
+      if (protofaceRef.current === protoface) {
+        protofaceRef.current = null;
+      }
+    }
   }
 
   async function connectRemoteMedia(user: IAgoraRTCRemoteUser, mediaType: "audio" | "video") {
@@ -287,8 +310,9 @@ export default function Home() {
     }
     agoraSessionRef.current = null;
 
-    await protofaceRef.current?.stop();
+    const protoface = protofaceRef.current;
     protofaceRef.current = null;
+    await protoface?.stop().catch(() => {});
   }
 
   function pushEvent(message: string) {
@@ -507,6 +531,29 @@ async function createProtofaceConnection(body: {
   return payload;
 }
 
+async function endProtofaceSession(sessionId: string) {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch("/api/protoface/session-token", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId })
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (response.ok) {
+        return;
+      }
+      lastError = new Error(payload.error ?? "Failed to end the Protoface session.");
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Failed to end the Protoface session.");
+    }
+  }
+
+  throw lastError ?? new Error("Failed to end the Protoface session.");
+}
+
 function createBrowserSessionApi(connection: ProtofaceConnectionResponse, avatarId: string) {
   return {
     async createLiveKitSession() {
@@ -529,11 +576,7 @@ function createBrowserSessionApi(connection: ProtofaceConnectionResponse, avatar
       };
     },
     async endSession(sessionId: string) {
-      await fetch("/api/protoface/session-token", {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionId })
-      });
+      await endProtofaceSession(sessionId);
     }
   };
 }
