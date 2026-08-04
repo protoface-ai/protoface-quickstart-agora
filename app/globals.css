@@ -142,6 +142,7 @@ input {
   background: var(--surface-strong);
 }
 
+.leftColumn,
 .controls,
 .panel {
   display: flex;

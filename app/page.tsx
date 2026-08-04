@@ -344,17 +344,30 @@ export default function Home() {
       </header>
 
       <div className="shell">
-        <section className="stage" aria-label="Protoface avatar stage">
-          {state !== "connected" ? (
-            <div className="stagePreview">
-              <p className="eyebrow">Protoface preview</p>
-              <h2>Your avatar will appear here once the conversation starts.</h2>
-              <p>Choose an integration, then start an Agora conversation with a realtime Protoface avatar.</p>
-            </div>
-          ) : null}
-          <video ref={videoRef} className="avatarVideo" autoPlay playsInline />
-          <audio ref={audioRef} autoPlay />
-        </section>
+        <div className="leftColumn">
+          <section className="stage" aria-label="Protoface avatar stage">
+            {state !== "connected" ? (
+              <div className="stagePreview">
+                <p className="eyebrow">Protoface preview</p>
+                <h2>Your avatar will appear here once the conversation starts.</h2>
+                <p>Choose an integration, then start an Agora conversation with a realtime Protoface avatar.</p>
+              </div>
+            ) : null}
+            <video ref={videoRef} className="avatarVideo" autoPlay playsInline />
+            <audio ref={audioRef} autoPlay />
+          </section>
+
+          <section className="log">
+            <h2>Events</h2>
+            <ul className="logList" aria-live="polite">
+              {events.length > 0 ? (
+                events.map((event, index) => <li key={`${event}-${index}`}>{event}</li>)
+              ) : (
+                <li>Ready when you are.</li>
+              )}
+            </ul>
+          </section>
+        </div>
 
         <aside className="controls">
           <section className="intro">
@@ -430,17 +443,6 @@ export default function Home() {
             </div>
 
             {error ? <p className="error">{error}</p> : null}
-          </section>
-
-          <section className="log">
-            <h2>Events</h2>
-            <ul className="logList" aria-live="polite">
-              {events.length > 0 ? (
-                events.map((event, index) => <li key={`${event}-${index}`}>{event}</li>)
-              ) : (
-                <li>Ready when you are.</li>
-              )}
-            </ul>
           </section>
 
           <section className="quickStart">
