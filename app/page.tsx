@@ -5,18 +5,19 @@ import { useRef, useState } from "react";
 import type { IAgoraRTCClient, IAgoraRTCRemoteUser, ILocalAudioTrack } from "agora-rtc-sdk-ng";
 import type { StopListening } from "protoface-client";
 
-const avatar = {
-  protoface_avatarid: process.env.NEXT_PUBLIC_PROTOFACE_AVATAR_ID || "av_stock_001"
-};
-
+type Integration = "protoface-client" | "agora-agents";
 type SessionState = "idle" | "starting" | "connected" | "disconnecting" | "disconnected" | "error";
 
 interface AgoraConnectionResponse {
   token: string;
+  appId: string;
+  avatarId: string;
   uid: string;
   channel: string;
+  name: string;
   agentUid: string;
-  agentId: string;
+  avatarUid?: string;
+  integration: Integration;
 }
 
 interface ProtofaceConnectionResponse {
@@ -39,10 +40,12 @@ export default function Home() {
   const audioCleanupRef = useRef<StopListening | null>(null);
   const cleanupPromiseRef = useRef<Promise<void> | null>(null);
   const agentIdRef = useRef<string | null>(null);
-  const agoraSessionRef = useRef<{ channel: string; agentUid: string } | null>(null);
+  const agoraSessionRef = useRef<AgoraConnectionResponse | null>(null);
 
   const [state, setState] = useState<SessionState>("idle");
   const [mode, setMode] = useState("idle");
+  const [integration, setIntegration] = useState<Integration>("protoface-client");
+  const [avatarId, setAvatarId] = useState("av_stock_001");
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<string[]>([]);
 
@@ -60,49 +63,15 @@ export default function Home() {
     setEvents([]);
 
     try {
-      const agora = await createAgoraConnection();
-      agentIdRef.current = agora.agentId;
-      agoraSessionRef.current = { channel: agora.channel, agentUid: agora.agentUid };
+      const agora = await createAgoraConnection(integration);
+      agoraSessionRef.current = agora;
+      setAvatarId(agora.avatarId);
 
-      const connection = await createProtofaceConnection({
-        avatarId: avatar.protoface_avatarid,
-        maxSessionLength: 600,
-        maxIdleTime: 180,
-        metadata: {
-          provider: "agora",
-          channel: agora.channel
-        }
-      });
-
-      const protoface = new ProtofaceClient({
-        avatarId: connection.avatarId ?? avatar.protoface_avatarid,
-        livekitUrl: connection.livekitUrl,
-        roomName: connection.roomName,
-        participantToken: connection.participantToken,
-        workerToken: "server-created",
-        workerIdentity: connection.avatarIdentity,
-        videoElement: videoRef.current,
-        audioElement: audioRef.current,
-        apiClient: createBrowserSessionApi(connection)
-      });
-
-      protoface.on("start", () => pushEvent("Protoface started."));
-      protoface.on("error", ({ error: protofaceError }) => {
-        setError(protofaceError.message);
-        pushEvent(`Protoface error: ${protofaceError.message}`);
-        void endSession("error");
-      });
-      protoface.on("speaking", () => {
-        setMode("speaking");
-        pushEvent("Protoface is speaking.");
-      });
-      protoface.on("silent", () => {
-        setMode("listening");
-        pushEvent("Protoface is ready.");
-      });
-
-      await protoface.start();
-      protofaceRef.current = protoface;
+      if (integration === "protoface-client") {
+        await startProtofaceClient(agora);
+      } else {
+      pushEvent("Protoface configured through the Agora Agents SDK.");
+      }
 
       const { default: AgoraRTC } = await import("agora-rtc-sdk-ng");
       const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
@@ -112,28 +81,42 @@ export default function Home() {
         pushEvent(`Agora connection ${formatStatusLabel(currentState)}.`);
         if (currentState === "CONNECTED") {
           setState("connected");
-          setMode("listening");
+          setMode(integration === "protoface-client" ? "listening" : "waiting for avatar");
         }
         if (currentState === "DISCONNECTED") {
           void endSession("disconnected");
         }
       });
 
-      client.on("user-published", async (user, mediaType) => {
-        if (mediaType !== "audio") {
+      client.on("user-published", (user, mediaType) => {
+        if (mediaType === "datachannel") {
           return;
         }
-        await client.subscribe(user, "audio");
-        await connectAgentAudio(user, protoface);
+        void connectRemoteMedia(user, mediaType).catch((mediaError) => {
+          const message = normalizeError(mediaError);
+          setError(message);
+          pushEvent(`Media subscription failed: ${message}`);
+        });
       });
 
-      await client.join(process.env.NEXT_PUBLIC_AGORA_APP_ID!, agora.channel, agora.token, Number(agora.uid));
+      await client.join(agora.appId, agora.channel, agora.token, Number(agora.uid));
       const microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack();
       microphoneTrackRef.current = microphoneTrack;
       await client.publish(microphoneTrack);
       pushEvent("Microphone connected to Agora.");
 
-      await Promise.all(client.remoteUsers.map((user) => connectAgentAudio(user, protoface)));
+      for (const user of client.remoteUsers) {
+        if (user.hasAudio) {
+          await connectRemoteMedia(user, "audio");
+        }
+        if (user.hasVideo) {
+          await connectRemoteMedia(user, "video");
+        }
+      }
+
+      const startedAgent = await startAgoraAgent(agora);
+      agentIdRef.current = startedAgent.agentId;
+      pushEvent("Agora AgentKit session started.");
     } catch (startError) {
       const message = normalizeError(startError);
       setError(message);
@@ -143,24 +126,89 @@ export default function Home() {
     }
   }
 
+  async function startProtofaceClient(agora: AgoraConnectionResponse) {
+    const connection = await createProtofaceConnection({
+      avatarId: agora.avatarId,
+      maxSessionLength: 600,
+      maxIdleTime: 180,
+      metadata: {
+        provider: "agora",
+        channel: agora.channel,
+        integration: "protoface-client"
+      }
+    });
+
+    const protoface = new ProtofaceClient({
+      avatarId: connection.avatarId ?? agora.avatarId,
+      livekitUrl: connection.livekitUrl,
+      roomName: connection.roomName,
+      participantToken: connection.participantToken,
+      workerToken: "server-created",
+      workerIdentity: connection.avatarIdentity,
+      videoElement: videoRef.current,
+      audioElement: audioRef.current,
+      apiClient: createBrowserSessionApi(connection, agora.avatarId)
+    });
+    protofaceRef.current = protoface;
+
+    protoface.on("start", () => pushEvent("Protoface Client started."));
+    protoface.on("error", ({ error: protofaceError }) => {
+      setError(protofaceError.message);
+      pushEvent(`Protoface error: ${protofaceError.message}`);
+      void endSession("error");
+    });
+    protoface.on("speaking", () => {
+      setMode("speaking");
+      pushEvent("Protoface is speaking.");
+    });
+    protoface.on("silent", () => {
+      setMode("listening");
+      pushEvent("Protoface is ready.");
+    });
+
+    await protoface.start();
+  }
+
+  async function connectRemoteMedia(user: IAgoraRTCRemoteUser, mediaType: "audio" | "video") {
+    const client = agoraClientRef.current;
+    const session = agoraSessionRef.current;
+    if (!client || !session) {
+      return;
+    }
+
+    if (session.integration === "protoface-client") {
+      if (mediaType !== "audio" || String(user.uid) !== session.agentUid || audioCleanupRef.current) {
+        return;
+      }
+      await client.subscribe(user, "audio");
+      const mediaTrack = user.audioTrack?.getMediaStreamTrack();
+      if (!mediaTrack || !protofaceRef.current) {
+        return;
+      }
+      audioCleanupRef.current = await protofaceRef.current.listenToMediaStreamTrack(mediaTrack);
+      pushEvent("Agora agent audio connected to Protoface Client.");
+      return;
+    }
+
+    if (String(user.uid) !== session.avatarUid) {
+      return;
+    }
+
+    await client.subscribe(user, mediaType);
+    if (mediaType === "video" && user.videoTrack && videoRef.current) {
+      user.videoTrack.play(videoRef.current);
+      setMode("avatar connected");
+      pushEvent("Protoface video received from the Agora channel.");
+    }
+    if (mediaType === "audio" && user.audioTrack) {
+      user.audioTrack.play();
+      pushEvent("Protoface audio received from the Agora channel.");
+    }
+  }
+
   async function stop() {
     await endSession("disconnected");
     pushEvent("Session stopped.");
-  }
-
-  async function connectAgentAudio(user: IAgoraRTCRemoteUser, protoface: ProtofaceClient) {
-    if (String(user.uid) !== agoraSessionRef.current?.agentUid || audioCleanupRef.current) {
-      return;
-    }
-
-    const audioTrack = user.audioTrack;
-    const mediaTrack = audioTrack?.getMediaStreamTrack();
-    if (!audioTrack || !mediaTrack) {
-      return;
-    }
-
-    audioCleanupRef.current = await protoface.listenToMediaStreamTrack(mediaTrack);
-    pushEvent("Agora agent audio connected to Protoface.");
   }
 
   async function endSession(nextState: "disconnected" | "error") {
@@ -190,15 +238,11 @@ export default function Home() {
     await agoraClientRef.current?.leave().catch(() => {});
     agoraClientRef.current = null;
 
-    if (agentIdRef.current && agoraSessionRef.current) {
+    if (agentIdRef.current) {
       await fetch("/api/agora/conversational-ai", {
         method: "DELETE",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          agentId: agentIdRef.current,
-          channel: agoraSessionRef.current.channel,
-          agentUid: agoraSessionRef.current.agentUid
-        })
+        body: JSON.stringify({ agentId: agentIdRef.current })
       }).catch(() => {});
       agentIdRef.current = null;
     }
@@ -238,7 +282,7 @@ export default function Home() {
             <div className="stagePreview">
               <p className="eyebrow">Protoface preview</p>
               <h2>Your avatar will appear here once the conversation starts.</h2>
-              <p>Start a session to test Agora Conversational AI with a realtime Protoface avatar.</p>
+              <p>Choose an integration, then start an Agora conversation with a realtime Protoface avatar.</p>
             </div>
           ) : null}
           <video ref={videoRef} className="avatarVideo" autoPlay playsInline />
@@ -248,12 +292,42 @@ export default function Home() {
         <aside className="controls">
           <section className="intro">
             <h1>Realtime avatars for AI.</h1>
-            <p>
-              Add a realtime Protoface avatar to Agora Conversational AI. Start a session to try the full conversation flow.
-            </p>
+            <p>Try the same Agora agent with Protoface connected in the browser or through the Agora Agents SDK.</p>
           </section>
 
           <section className="status">
+            <fieldset className="integrationPicker" disabled={isRunning}>
+              <legend>Integration</legend>
+              <label className={integration === "protoface-client" ? "integrationOption selected" : "integrationOption"}>
+                <input
+                  type="radio"
+                  name="integration"
+                  value="protoface-client"
+                  checked={integration === "protoface-client"}
+                  onChange={() => setIntegration("protoface-client")}
+                />
+                <span>
+                  <strong>Protoface Client</strong>
+                  <small>
+                    LiveKit transports the avatar audio and video. Agora is used only for the speech-to-speech agent.
+                  </small>
+                </span>
+              </label>
+              <label className={integration === "agora-agents" ? "integrationOption selected" : "integrationOption"}>
+                <input
+                  type="radio"
+                  name="integration"
+                  value="agora-agents"
+                  checked={integration === "agora-agents"}
+                  onChange={() => setIntegration("agora-agents")}
+                />
+                <span>
+                  <strong>Agora Agents SDK</strong>
+                  <small>Agora Channels transport the conversation and the Protoface avatar audio and video.</small>
+                </span>
+              </label>
+            </fieldset>
+
             <div className="buttonRow">
               <button className="button" type="button" onClick={start} disabled={isRunning}>
                 {state === "starting" ? "Starting" : "Start conversation"}
@@ -280,7 +354,7 @@ export default function Home() {
               </div>
               <div className="statusItem">
                 <strong>Protoface avatar</strong>
-                <span className="pill">{avatar.protoface_avatarid}</span>
+                <span className="pill">{avatarId}</span>
               </div>
               <div className="statusItem">
                 <strong>Agora agent</strong>
@@ -305,9 +379,9 @@ export default function Home() {
           <section className="quickStart">
             <h2>Quick start</h2>
             <ol>
-              <li>Add keys to `.env`.</li>
-              <li>Create an Agora Conversational AI agent.</li>
-              <li>Set the avatar ID you want to preview.</li>
+              <li>Add the shared Agora and Protoface keys to `.env`.</li>
+              <li>Add LiveKit keys when using Protoface Client.</li>
+              <li>Choose an integration and start the conversation.</li>
             </ol>
           </section>
         </aside>
@@ -316,13 +390,33 @@ export default function Home() {
   );
 }
 
-async function createAgoraConnection() {
+async function createAgoraConnection(integration: Integration) {
   const response = await fetch("/api/agora/conversational-ai", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({})
+    body: JSON.stringify({ integration })
   });
   const payload = (await response.json()) as AgoraConnectionResponse & { error?: string };
+  if (!response.ok) {
+    throw new Error(payload.error ?? "Failed to start Agora Conversational AI.");
+  }
+  return payload;
+}
+
+async function startAgoraAgent(agora: AgoraConnectionResponse) {
+  const response = await fetch("/api/agora/conversational-ai", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      integration: agora.integration,
+      name: agora.name,
+      channel: agora.channel,
+      uid: agora.uid,
+      agentUid: agora.agentUid,
+      avatarUid: agora.avatarUid
+    })
+  });
+  const payload = (await response.json()) as { agentId: string; error?: string };
   if (!response.ok) {
     throw new Error(payload.error ?? "Failed to start Agora Conversational AI.");
   }
@@ -347,13 +441,13 @@ async function createProtofaceConnection(body: {
   return payload;
 }
 
-function createBrowserSessionApi(connection: ProtofaceConnectionResponse) {
+function createBrowserSessionApi(connection: ProtofaceConnectionResponse, avatarId: string) {
   return {
     async createLiveKitSession() {
       return {
         id: connection.sessionId ?? connection.sessionToken,
         status: "running" as const,
-        avatar_id: connection.avatarId ?? avatar.protoface_avatarid,
+        avatar_id: connection.avatarId ?? avatarId,
         transport: {
           type: "livekit" as const,
           url: connection.livekitUrl,

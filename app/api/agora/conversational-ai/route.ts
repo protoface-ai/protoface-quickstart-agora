@@ -1,51 +1,98 @@
+import { Agent, AgoraClient, Area, GenericAvatar } from "agora-agents";
 import { NextResponse } from "next/server";
 import { RtcRole, RtcTokenBuilder } from "agora-token";
 
 export const runtime = "nodejs";
 
-export async function POST() {
+const DEFAULT_PROTOFACE_AGORA_BASE_URL = "https://api.protoface.com/v1/agora/";
+const AGORA_AGENT_UID = "1000";
+const AGORA_AVATAR_UID = "1001";
+const AGORA_VIEWER_UID = "1002";
+
+type Integration = "protoface-client" | "agora-agents";
+
+interface PrepareRequest {
+  integration?: Integration;
+}
+
+interface StartRequest {
+  integration?: Integration;
+  name?: string;
+  channel?: string;
+  uid?: string;
+  agentUid?: string;
+  avatarUid?: string;
+}
+
+export async function POST(request: Request) {
   try {
-    const appId = requireEnv("NEXT_PUBLIC_AGORA_APP_ID");
+    const body = (await request.json().catch(() => ({}))) as PrepareRequest;
+    const integration = requireIntegration(body.integration);
+    const appId = requireEnv("AGORA_APP_ID");
     const appCertificate = requireEnv("AGORA_APP_CERTIFICATE");
-    const pipelineId = requireEnv("AGORA_CONVOAI_PIPELINE_ID");
     const channel = `protoface-agora-${crypto.randomUUID()}`;
     const name = `protoface-agora-${crypto.randomUUID()}`;
-    const uid = randomAgoraUid();
-    const agentUid = randomAgoraUid();
-    const browserToken = createRtcToken({ appId, appCertificate, channel, uid });
-    const agentToken = createRtcToken({ appId, appCertificate, channel, uid: agentUid });
+    const uid = AGORA_VIEWER_UID;
+    const agentUid = AGORA_AGENT_UID;
+    const avatarUid = integration === "agora-agents" ? AGORA_AVATAR_UID : undefined;
+    const avatarId = requireEnv("PROTOFACE_AVATAR_ID");
+    const token = createRtcToken({ appId, appCertificate, channel, uid });
 
-    const response = await fetch(`${getAgoraApiBaseUrl()}/v2/projects/${appId}/join`, {
-      method: "POST",
-      headers: {
-        Authorization: `agora token=${agentToken}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        name,
-        pipeline_id: pipelineId,
-        properties: {
-          channel,
-          agent_rtc_uid: agentUid,
-          remote_rtc_uids: ["*"],
-          token: agentToken
-        }
-      })
+    // The browser joins and publishes before it calls PUT to start this one AgentKit session.
+    return NextResponse.json({ token, appId, avatarId, uid, channel, name, agentUid, avatarUid, integration });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to prepare the Agora conversation.";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const body = (await request.json()) as StartRequest;
+    const integration = requireIntegration(body.integration);
+    const name = requireBodyValue("name", body.name);
+    const channel = requireBodyValue("channel", body.channel);
+    const uid = requireBodyValue("uid", body.uid);
+    const agentUid = requireBodyValue("agentUid", body.agentUid);
+    const appId = requireEnv("AGORA_APP_ID");
+    const appCertificate = requireEnv("AGORA_APP_CERTIFICATE");
+    const client = createAgoraClient(appId, appCertificate);
+
+    // AI Studio supplies this quickstart's STT, LLM, and TTS configuration.
+    let agent = new Agent({ client, pipelineId: requireEnv("AGORA_CONVOAI_PIPELINE_ID") });
+
+    // To configure vendors in code instead, import the vendors you use and replace
+    // the line above with this builder shape:
+    // let agent = new Agent({ client })
+    //   .withStt(/* your STT vendor */)
+    //   .withLlm(/* your LLM vendor */)
+    //   .withTts(/* your TTS vendor */);
+
+    if (integration === "agora-agents") {
+      agent = agent.withAvatar(
+        new GenericAvatar({
+          apiKey: requireEnv("PROTOFACE_API_KEY"),
+          apiBaseUrl: getProtofaceAgoraBaseUrl(),
+          avatarId: requireEnv("PROTOFACE_AVATAR_ID"),
+          agoraUid: requireBodyValue("avatarUid", body.avatarUid)
+        })
+      );
+    }
+
+    const session = agent.createSession({
+      name,
+      channel,
+      agentUid,
+      remoteUids: [uid],
+      idleTimeout: 180
     });
-    const payload = (await response.json().catch(() => null)) as
-      | ({ agent_id?: string; agentId?: string; error?: unknown } & Record<string, unknown>)
-      | null;
+    const agentId = await session.start();
 
-    if (!response.ok) {
-      throw new Error(extractAgoraError(payload) ?? `Agora join failed with status ${response.status}.`);
-    }
-
-    const agentId = payload?.agent_id ?? payload?.agentId;
     if (!agentId) {
-      throw new Error("Agora join response is missing agent ID.");
+      throw new Error("Agora Agents SDK did not return an agent ID.");
     }
 
-    return NextResponse.json({ token: browserToken, uid, channel, agentUid, agentId });
+    return NextResponse.json({ agentId });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to start Agora Conversational AI.";
     return NextResponse.json({ error: message }, { status: 400 });
@@ -54,37 +101,16 @@ export async function POST() {
 
 export async function DELETE(request: Request) {
   try {
-    const { agentId, channel, agentUid } = (await request.json()) as {
-      agentId?: string;
-      channel?: string;
-      agentUid?: string;
-    };
+    const { agentId } = (await request.json()) as { agentId?: string };
     if (!agentId) {
       throw new Error("Missing agentId.");
     }
-    if (!channel) {
-      throw new Error("Missing channel.");
-    }
-    if (!agentUid) {
-      throw new Error("Missing agentUid.");
-    }
 
-    const appId = requireEnv("NEXT_PUBLIC_AGORA_APP_ID");
-    const appCertificate = requireEnv("AGORA_APP_CERTIFICATE");
-    const token = createRtcToken({ appId, appCertificate, channel, uid: agentUid });
-    const response = await fetch(`${getAgoraApiBaseUrl()}/v2/projects/${appId}/agents/${agentId}/leave`, {
-      method: "POST",
-      headers: {
-        Authorization: `agora token=${token}`,
-        "content-type": "application/json"
-      }
-    });
-
-    if (!response.ok && response.status !== 404) {
-      const payload = (await response.json().catch(() => null)) as { error?: unknown } | null;
-      throw new Error(extractAgoraError(payload) ?? `Agora stop failed with status ${response.status}.`);
-    }
-
+    const client = createAgoraClient(
+      requireEnv("AGORA_APP_ID"),
+      requireEnv("AGORA_APP_CERTIFICATE")
+    );
+    await client.stopAgent(agentId);
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to stop Agora Conversational AI.";
@@ -92,8 +118,17 @@ export async function DELETE(request: Request) {
   }
 }
 
-function getAgoraApiBaseUrl() {
-  return "https://api.agora.io/api/conversational-ai-agent";
+function createAgoraClient(appId: string, appCertificate: string) {
+  return new AgoraClient({
+    area: Area.US,
+    appId,
+    appCertificate
+  });
+}
+
+function getProtofaceAgoraBaseUrl() {
+  const configured = process.env.PROTOFACE_AGORA_BASE_URL?.trim();
+  return configured ? configured.replace(/\/+$/, "") : DEFAULT_PROTOFACE_AGORA_BASE_URL;
 }
 
 function createRtcToken(options: {
@@ -114,28 +149,24 @@ function createRtcToken(options: {
   );
 }
 
-function randomAgoraUid() {
-  return String(Math.floor(Math.random() * 9_999_000) + 1000);
-}
-
-function extractAgoraError(payload: { error?: unknown } | null) {
-  if (!payload?.error) {
-    return null;
+function requireIntegration(value: Integration | undefined): Integration {
+  if (value === "protoface-client" || value === "agora-agents") {
+    return value;
   }
-  if (typeof payload.error === "string") {
-    return payload.error;
-  }
-  if (typeof payload.error === "object" && "message" in payload.error) {
-    const message = (payload.error as { message?: unknown }).message;
-    return typeof message === "string" ? message : null;
-  }
-  return null;
+  throw new Error("integration must be protoface-client or agora-agents.");
 }
 
 function requireEnv(name: string) {
-  const value = process.env[name];
+  const value = process.env[name]?.trim();
   if (!value) {
     throw new Error(`Missing ${name}.`);
   }
   return value;
+}
+
+function requireBodyValue(name: string, value: string | undefined) {
+  if (!value?.trim()) {
+    throw new Error(`Missing ${name}.`);
+  }
+  return value.trim();
 }
