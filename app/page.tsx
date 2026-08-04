@@ -41,6 +41,8 @@ export default function Home() {
   const cleanupPromiseRef = useRef<Promise<void> | null>(null);
   const agentIdRef = useRef<string | null>(null);
   const agoraSessionRef = useRef<AgoraConnectionResponse | null>(null);
+  const startAttemptRef = useRef(0);
+  const agentReadyRef = useRef(false);
 
   const [state, setState] = useState<SessionState>("idle");
   const [mode, setMode] = useState("idle");
@@ -57,6 +59,8 @@ export default function Home() {
       return;
     }
 
+    const startAttempt = ++startAttemptRef.current;
+    agentReadyRef.current = false;
     setState("starting");
     setMode("starting");
     setError(null);
@@ -64,24 +68,36 @@ export default function Home() {
 
     try {
       const agora = await createAgoraConnection(integration);
+      if (!isStartAttemptActive(startAttempt)) {
+        return;
+      }
       agoraSessionRef.current = agora;
       setAvatarId(agora.avatarId);
 
       if (integration === "protoface-client") {
         await startProtofaceClient(agora);
       } else {
-      pushEvent("Protoface configured through the Agora Agents SDK.");
+        pushEvent("Protoface configured through the Agora Agents SDK.");
+      }
+      if (!isStartAttemptActive(startAttempt)) {
+        return;
       }
 
       const { default: AgoraRTC } = await import("agora-rtc-sdk-ng");
+      if (!isStartAttemptActive(startAttempt)) {
+        return;
+      }
       const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
       agoraClientRef.current = client;
 
       client.on("connection-state-change", (currentState) => {
+        if (!isStartAttemptActive(startAttempt)) {
+          return;
+        }
         pushEvent(`Agora connection ${formatStatusLabel(currentState)}.`);
         if (currentState === "CONNECTED") {
           setState("connected");
-          setMode(integration === "protoface-client" ? "listening" : "waiting for avatar");
+          setMode("starting agent");
         }
         if (currentState === "DISCONNECTED") {
           void endSession("disconnected");
@@ -89,7 +105,7 @@ export default function Home() {
       });
 
       client.on("user-published", (user, mediaType) => {
-        if (mediaType === "datachannel") {
+        if (!isStartAttemptActive(startAttempt) || mediaType === "datachannel") {
           return;
         }
         void connectRemoteMedia(user, mediaType).catch((mediaError) => {
@@ -100,12 +116,27 @@ export default function Home() {
       });
 
       await client.join(agora.appId, agora.channel, agora.token, Number(agora.uid));
+      if (!isStartAttemptActive(startAttempt)) {
+        await client.leave().catch(() => {});
+        return;
+      }
       const microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      if (!isStartAttemptActive(startAttempt)) {
+        microphoneTrack.stop();
+        microphoneTrack.close();
+        return;
+      }
       microphoneTrackRef.current = microphoneTrack;
       await client.publish(microphoneTrack);
+      if (!isStartAttemptActive(startAttempt)) {
+        return;
+      }
       pushEvent("Microphone connected to Agora.");
 
       for (const user of client.remoteUsers) {
+        if (!isStartAttemptActive(startAttempt)) {
+          return;
+        }
         if (user.hasAudio) {
           await connectRemoteMedia(user, "audio");
         }
@@ -115,9 +146,18 @@ export default function Home() {
       }
 
       const startedAgent = await startAgoraAgent(agora);
+      if (!isStartAttemptActive(startAttempt)) {
+        await stopAgoraAgent(startedAgent.agentId).catch(() => {});
+        return;
+      }
       agentIdRef.current = startedAgent.agentId;
+      agentReadyRef.current = true;
+      setMode(integration === "protoface-client" ? "listening" : "waiting for avatar");
       pushEvent("Agora AgentKit session started.");
     } catch (startError) {
+      if (!isStartAttemptActive(startAttempt)) {
+        return;
+      }
       const message = normalizeError(startError);
       setError(message);
       pushEvent(`Start failed: ${message}`);
@@ -162,7 +202,7 @@ export default function Home() {
       pushEvent("Protoface is speaking.");
     });
     protoface.on("silent", () => {
-      setMode("listening");
+      setMode(agentReadyRef.current ? "listening" : "starting agent");
       pushEvent("Protoface is ready.");
     });
 
@@ -225,6 +265,8 @@ export default function Home() {
   }
 
   async function cleanupSession() {
+    startAttemptRef.current += 1;
+    agentReadyRef.current = false;
     setMode("idle");
     audioCleanupRef.current?.();
     audioCleanupRef.current = null;
@@ -239,12 +281,9 @@ export default function Home() {
     agoraClientRef.current = null;
 
     if (agentIdRef.current) {
-      await fetch("/api/agora/conversational-ai", {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agentId: agentIdRef.current })
-      }).catch(() => {});
+      const agentId = agentIdRef.current;
       agentIdRef.current = null;
+      await stopAgoraAgent(agentId).catch(() => {});
     }
     agoraSessionRef.current = null;
 
@@ -254,6 +293,10 @@ export default function Home() {
 
   function pushEvent(message: string) {
     setEvents((current) => [message, ...current].slice(0, 8));
+  }
+
+  function isStartAttemptActive(startAttempt: number) {
+    return startAttemptRef.current === startAttempt;
   }
 
   return (
@@ -421,6 +464,29 @@ async function startAgoraAgent(agora: AgoraConnectionResponse) {
     throw new Error(payload.error ?? "Failed to start Agora Conversational AI.");
   }
   return payload;
+}
+
+async function stopAgoraAgent(agentId: string) {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch("/api/agora/conversational-ai", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentId })
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (response.ok) {
+        return;
+      }
+      lastError = new Error(payload.error ?? "Failed to stop Agora Conversational AI.");
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Failed to stop Agora Conversational AI.");
+    }
+  }
+
+  throw lastError ?? new Error("Failed to stop Agora Conversational AI.");
 }
 
 async function createProtofaceConnection(body: {
