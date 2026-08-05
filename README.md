@@ -1,18 +1,10 @@
 # Protoface Quickstart for Agora Conversational AI
 
-This quickstart shows two ways to add a real-time Protoface avatar to an Agora voice agent.
+This quickstart shows two ways to add a real-time Protoface avatar to an Agora voice agent:
 
-### Protoface Client
+- **Protoface Client:** LiveKit carries the avatar audio and video. Agora still powers the voice conversation, but the avatar runs alongside it through `protoface-client`. Choose this option if you already use LiveKit or want to control the avatar directly from your frontend.
 
-LiveKit carries the avatar audio and video. Agora still powers the voice conversation, but the avatar runs alongside it through `protoface-client`.
-
-Choose this option if you already use LiveKit or want to control the avatar directly from your frontend.
-
-### Agora Agents SDK
-
-Protoface joins the same Agora channel as the voice agent. Agora carries the conversation and the avatar audio and video, so you do not need LiveKit.
-
-Choose this option if you want the avatar managed as part of your Agora agent.
+- **Agora Agents SDK:** Protoface joins the same Agora channel as the voice agent. Agora carries the conversation and the avatar audio and video, so you do not need LiveKit. Choose this option if you want the avatar managed as part of your Agora agent.
 
 ## About Protoface
 
