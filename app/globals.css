@@ -32,7 +32,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input {
   font: inherit;
 }
 
@@ -83,13 +84,16 @@ textarea {
   display: grid;
   grid-template-columns: minmax(0, 1.12fr) minmax(340px, 0.88fr);
   gap: 28px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .stage {
   position: relative;
   overflow: hidden;
-  min-height: 680px;
+  width: 100%;
+  min-height: 0;
+  max-height: 760px;
+  aspect-ratio: 4 / 5;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: var(--surface);
@@ -133,11 +137,12 @@ textarea {
   display: block;
   width: 100%;
   height: 100%;
-  min-height: 680px;
+  min-height: 0;
   object-fit: cover;
   background: var(--surface-strong);
 }
 
+.leftColumn,
 .controls,
 .panel {
   display: flex;
@@ -199,6 +204,58 @@ textarea {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.integrationPicker {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 0;
+  border: 0;
+}
+
+.integrationPicker legend {
+  margin-bottom: 10px;
+  font-family: "Host Grotesk", "Inter", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.integrationOption {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  cursor: pointer;
+  background: #ffffff;
+}
+
+.integrationOption.selected {
+  border-color: var(--foreground);
+  background: var(--surface);
+}
+
+.integrationOption input {
+  margin: 3px 0 0;
+  accent-color: var(--foreground);
+}
+
+.integrationOption span {
+  display: grid;
+  gap: 3px;
+}
+
+.integrationOption small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.integrationPicker:disabled .integrationOption {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 .button,
@@ -314,6 +371,11 @@ button:disabled {
   .stage,
   .avatarVideo,
   .stage video {
+    max-height: none;
+  }
+
+  .stage {
     min-height: 460px;
+    aspect-ratio: 4 / 3;
   }
 }

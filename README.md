@@ -1,6 +1,10 @@
-# Protoface Quickstart for Agora Conversational AI Studio
+# Protoface Quickstart for Agora Conversational AI
 
-This quickstart is the easiest way to serve a Protoface Avatar connected to Agora Conversational AI. Simply follow the steps listed below.
+This quickstart shows two ways to add a real-time Protoface avatar to an Agora voice agent:
+
+- **Protoface Client:** LiveKit carries the avatar audio and video. Agora still powers the voice conversation, but the avatar runs alongside it through `protoface-client`. Choose this option if you already use LiveKit or want to control the avatar directly from your frontend.
+
+- **Agora Agents SDK:** Protoface joins the same Agora channel as the voice agent. Agora carries the conversation and the avatar audio and video, so you do not need LiveKit. Choose this option if you want the avatar managed as part of your Agora agent.
 
 ## About Protoface
 
@@ -10,52 +14,94 @@ Get a **free** API key at [protoface.com](https://protoface.com/?utm_source=gith
 
 Read the docs at [docs.protoface.com](https://docs.protoface.com/?utm_source=github&utm_medium=referral&utm_campaign=github_docs&utm_content=protoface-quickstart-agora).
 
-To see quickstarts for other platforms, visit the [quickstart repo](https://github.com/protoface-ai/protoface-quickstart).
-
 ## Get Started
 
-1. Copy `.env.example` for your local `.env` file and put in your Protoface API key, your LiveKit secrets, and your Agora Conversational AI Studio details.
+1. Copy `.env.example` to `.env` and add your credentials.
 
-```js
+```dotenv
+# Required for both options
 PROTOFACE_API_KEY="PROTOFACE-API-KEY"
+PROTOFACE_AVATAR_ID="av_stock_001"
+
+AGORA_APP_ID="AGORA-APP-ID"
+AGORA_APP_CERTIFICATE="AGORA-APP-CERTIFICATE"
+AGORA_CONVOAI_PIPELINE_ID="AGORA-AI-STUDIO-PIPELINE-ID"
+
+# Required only for Protoface Client
 LIVEKIT_URL="wss://YOUR-LIVEKIT-PROJECT.livekit.cloud"
 LIVEKIT_API_KEY="LIVEKIT-API-KEY"
 LIVEKIT_API_SECRET="LIVEKIT-API-SECRET"
-
-NEXT_PUBLIC_AGORA_APP_ID="AGORA-APP-ID"
-AGORA_APP_CERTIFICATE="AGORA-APP-CERTIFICATE"
-AGORA_CONVOAI_PIPELINE_ID="AGORA-AI-STUDIO-PIPELINE-ID"
-NEXT_PUBLIC_PROTOFACE_AVATAR_ID="av_stock_001" // Optional (defaults to av_stock_001)
 ```
 
-2. Install the needed packages.
+2. Install the packages.
 
 ```bash
 npm install
 ```
 
-3. Run the dev server and head to [the site](http://localhost:3000).
+3. Start the app and open [http://localhost:3000](http://localhost:3000).
 
 ```bash
 npm run dev
 ```
 
+4. Choose **Protoface Client** or **Agora Agents SDK**, then start a conversation.
+
 ## How It Works
 
-The app starts an Agora Conversational AI Studio session and a Protoface avatar session side by side:
+### Protoface Client
 
-1. The server route starts the configured Agora Conversational AI Studio pipeline.
-2. The browser joins the Agora RTC channel and publishes microphone audio.
-3. `ProtofaceClient.start()` connects the browser to the avatar session.
-4. The app passes the agent's realtime speech to Protoface so the avatar speaks naturally.
+The Agora conversation and Protoface avatar run side by side:
 
-Protoface is the visible and audible avatar output for the experience.
+1. The server prepares an Agora conversation.
+2. The server starts a separate Protoface avatar session on LiveKit.
+3. The browser joins Agora and publishes microphone audio.
+4. The server starts the voice agent using your Agora AI Studio pipeline.
+5. The browser sends the agent's speech to `protoface-client`, which displays the talking avatar from LiveKit.
+
+This option requires the three `LIVEKIT_*` variables shown above.
+
+### Agora Agents SDK
+
+The voice agent and Protoface avatar share one Agora channel:
+
+1. The server prepares an Agora channel for the viewer, voice agent, and avatar.
+2. The browser joins the channel and publishes microphone audio.
+3. The server creates the voice agent from your Agora AI Studio pipeline and adds Protoface as its avatar.
+4. The server starts the agent and connects the Protoface avatar to the channel.
+5. The browser plays the avatar audio and video from Agora when the agent responds.
+
+This option does not use LiveKit.
+
+## Configure AI Services in Code
+
+By default, `AGORA_CONVOAI_PIPELINE_ID` loads the speech recognition, language model, and voice configured in Agora AI Studio.
+
+If you prefer to configure those services in code, replace this:
+
+```ts
+let agent = new Agent({
+  client,
+  pipelineId: requireEnv("AGORA_CONVOAI_PIPELINE_ID")
+})
+```
+
+with your chosen providers:
+
+```ts
+let agent = new Agent({ client })
+  .withStt(/* your speech recognition provider */)
+  .withLlm(/* your language model provider */)
+  .withTts(/* your voice provider */)
+```
+
+Keep the existing `.withAvatar(new GenericAvatar(...))` call after this block.
 
 ## Avatars
 
-Find avatars you like or create your own on [the Protoface dashboard](https://app.protoface.com?utm_source=github&utm_medium=referral&utm_campaign=github_docs&utm_content=protoface-quickstart-agora). Replace the `.env` value for `NEXT_PUBLIC_PROTOFACE_AVATAR_ID` to swap the stock avatar with one of your choosing.
+Find avatars or create your own in the [Protoface dashboard](https://app.protoface.com?utm_source=github&utm_medium=referral&utm_campaign=github_docs&utm_content=protoface-quickstart-agora). Change `PROTOFACE_AVATAR_ID` to use another avatar.
 
-Alternatively, find the API spec for creating, retrieving, and maintaing avatars at [docs.protoface.com](https://docs.protoface.com/guides/avatars?utm_source=github&utm_medium=referral&utm_campaign=github_docs&utm_content=protoface-quickstart-agora).
+See the [Protoface avatar docs](https://docs.protoface.com/guides/avatars?utm_source=github&utm_medium=referral&utm_campaign=github_docs&utm_content=protoface-quickstart-agora) for more details.
 
 ## Protoface: More Quickstarts
 
@@ -77,4 +123,3 @@ If an SDK or plugin is available separately, we've linked to it instead.
 | VideoSDK | [Starter Repo](https://github.com/protoface-ai/protoface-quickstart-videosdk) |
 | Python | [SDK](https://github.com/protoface-ai/protoface-sdk-python) |
 | Node.js | [SDK](https://github.com/protoface-ai/protoface-sdk-node) |
-

@@ -4,6 +4,8 @@ import { ProtofaceApiClient } from "protoface-client";
 
 export const runtime = "nodejs";
 
+const DEFAULT_PROTOFACE_API_URL = "https://api.protoface.com";
+
 interface SessionTokenRequest {
   avatarId?: string;
   maxSessionLength?: number;
@@ -42,7 +44,7 @@ export async function POST(request: Request) {
       })
     ]);
 
-    const protoface = new ProtofaceApiClient({ apiKey: protofaceApiKey });
+    const protoface = createProtofaceApiClient(protofaceApiKey);
     const session = await protoface.createLiveKitSession({
       avatarId,
       livekitUrl,
@@ -81,7 +83,7 @@ export async function DELETE(request: Request) {
       throw new Error("Missing sessionId.");
     }
 
-    const protoface = new ProtofaceApiClient({ apiKey: requireEnv("PROTOFACE_API_KEY") });
+    const protoface = createProtofaceApiClient(requireEnv("PROTOFACE_API_KEY"));
     await protoface.endSession(sessionId);
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -119,6 +121,14 @@ function requireEnv(name: string) {
     throw new Error(`Missing ${name}.`);
   }
   return value;
+}
+
+function createProtofaceApiClient(apiKey: string) {
+  const baseUrl = process.env.PROTOFACE_API_URL?.trim() || DEFAULT_PROTOFACE_API_URL;
+  return new ProtofaceApiClient({
+    apiKey,
+    baseUrl
+  });
 }
 
 function requireBodyValue(name: string, value: string | undefined) {
