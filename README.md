@@ -2,7 +2,7 @@
 
 This quickstart shows two ways to add a real-time Protoface avatar to an Agora voice agent.
 
-### Protoface client
+### Protoface Client
 
 LiveKit carries the avatar audio and video. Agora still powers the voice conversation, but the avatar runs alongside it through `protoface-client`.
 
@@ -35,7 +35,7 @@ AGORA_APP_ID="AGORA-APP-ID"
 AGORA_APP_CERTIFICATE="AGORA-APP-CERTIFICATE"
 AGORA_CONVOAI_PIPELINE_ID="AGORA-AI-STUDIO-PIPELINE-ID"
 
-# Required only for Protoface client
+# Required only for Protoface Client
 LIVEKIT_URL="wss://YOUR-LIVEKIT-PROJECT.livekit.cloud"
 LIVEKIT_API_KEY="LIVEKIT-API-KEY"
 LIVEKIT_API_SECRET="LIVEKIT-API-SECRET"
@@ -53,11 +53,11 @@ npm install
 npm run dev
 ```
 
-4. Choose **Protoface client** or **Agora Agents SDK**, then start a conversation.
+4. Choose **Protoface Client** or **Agora Agents SDK**, then start a conversation.
 
 ## How It Works
 
-### Protoface client
+### Protoface Client
 
 The browser joins the Agora conversation and starts a separate Protoface session on LiveKit. When the Agora agent speaks, the browser sends that speech to Protoface. `protoface-client` then displays the talking avatar from LiveKit.
 
