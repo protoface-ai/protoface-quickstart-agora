@@ -53,7 +53,7 @@ npm run dev
 
 The Agora conversation and Protoface avatar run side by side:
 
-1. The server prepares an Agora channel for the conversation.
+1. The server prepares an Agora conversation.
 2. The server starts a separate Protoface avatar session on LiveKit.
 3. The browser joins Agora and publishes microphone audio.
 4. The server starts the voice agent using your Agora AI Studio pipeline.
