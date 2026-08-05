@@ -59,13 +59,25 @@ npm run dev
 
 ### Protoface Client
 
-The browser joins the Agora conversation and starts a separate Protoface session on LiveKit. When the Agora agent speaks, the browser sends that speech to Protoface. `protoface-client` then displays the talking avatar from LiveKit.
+The Agora conversation and Protoface avatar run side by side:
+
+1. The server prepares an Agora channel for the conversation.
+2. The server starts a separate Protoface avatar session on LiveKit.
+3. The browser joins Agora and publishes microphone audio.
+4. The server starts the voice agent using your Agora AI Studio pipeline.
+5. The browser sends the agent's speech to `protoface-client`, which displays the talking avatar from LiveKit.
 
 This option requires the three `LIVEKIT_*` variables shown above.
 
 ### Agora Agents SDK
 
-The browser joins the Agora conversation first. The server then starts the voice agent and adds Protoface as its avatar. Protoface publishes the finished avatar audio and video back into the same Agora channel.
+The voice agent and Protoface avatar share one Agora channel:
+
+1. The server prepares an Agora channel for the viewer, voice agent, and avatar.
+2. The browser joins the channel and publishes microphone audio.
+3. The server creates the voice agent from your Agora AI Studio pipeline and adds Protoface as its avatar.
+4. The server starts the agent and connects the Protoface avatar to the channel.
+5. The browser plays the avatar audio and video from Agora when the agent responds.
 
 This option does not use LiveKit.
 
