@@ -22,7 +22,7 @@ Get a **free** API key at [protoface.com](https://protoface.com/?utm_source=gith
 
 Read the docs at [docs.protoface.com](https://docs.protoface.com/?utm_source=github&utm_medium=referral&utm_campaign=github_docs&utm_content=protoface-quickstart-agora).
 
-## Get started
+## Get Started
 
 1. Copy `.env.example` to `.env` and add your credentials.
 
@@ -55,7 +55,7 @@ npm run dev
 
 4. Choose **Protoface client** or **Agora Agents SDK**, then start a conversation.
 
-## How it works
+## How It Works
 
 ### Protoface client
 
@@ -69,7 +69,7 @@ The browser joins the Agora conversation first. The server then starts the voice
 
 This option does not use LiveKit.
 
-## Configure AI services in code
+## Configure AI Services in Code
 
 By default, `AGORA_CONVOAI_PIPELINE_ID` loads the speech recognition, language model, and voice configured in Agora AI Studio.
 
@@ -99,14 +99,18 @@ Find avatars or create your own in the [Protoface dashboard](https://app.protofa
 
 See the [Protoface avatar docs](https://docs.protoface.com/guides/avatars?utm_source=github&utm_medium=referral&utm_campaign=github_docs&utm_content=protoface-quickstart-agora) for more details.
 
-## More Protoface quickstarts
+## Protoface: More Quickstarts
 
-Protoface works with popular voice AI platforms.
+Protoface integrates with popular voice AI platforms.
+
+Clone a starter repo, add your keys to the environment file, and run.
+
+If an SDK or plugin is available separately, we've linked to it instead.
 
 | Platform | Link |
 | --- | --- |
-| LiveKit | [Plugin](https://github.com/livekit/agents/tree/main/livekit-plugins/livekit-plugins-protoface) [Official Docs](https://docs.livekit.io/agents/models/avatar/plugins/protoface/) |
-| Pipecat | [Plugin](https://github.com/protoface-ai/protoface-plugin-pipecat) [Official Docs](https://docs.pipecat.ai/api-reference/server/services/video/protoface) |
+| LiveKit | [Plugin](https://github.com/livekit/agents/tree/main/livekit-plugins/livekit-plugins-protoface) [Official Docs](https://docs.livekit.io/agents/models/avatar/plugins/protoface/)|
+| Pipecat | [Plugin](https://github.com/protoface-ai/protoface-plugin-pipecat) [Official Docs](https://docs.pipecat.ai/api-reference/server/services/video/protoface)|
 | Protoface Managed Conversations | [Starter Repo](https://github.com/protoface-ai/protoface-quickstart-conversations) |
 | Agora | [Starter Repo](https://github.com/protoface-ai/protoface-quickstart-agora) |
 | Vapi | [Starter Repo](https://github.com/protoface-ai/protoface-quickstart-vapi) |
